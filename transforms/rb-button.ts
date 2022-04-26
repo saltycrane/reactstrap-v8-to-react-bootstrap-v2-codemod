@@ -14,18 +14,22 @@ import {
  *
  */
 export const convertButton = (fileSource: string, api: types.API) => {
-  fileSource = updateImports({
+  let hasImports: boolean;
+  [fileSource, hasImports] = updateImports({
     api,
     fileSource,
     rbComponentToAdd: "Button",
     rsComponentsToRemove: ["Button"],
   });
-  fileSource = updateImports({
+  [fileSource] = updateImports({
     api,
     fileSource,
     rbComponentToAdd: "ButtonProps",
     rsComponentsToRemove: ["ButtonProps"],
   });
+  if (!hasImports) {
+    return fileSource;
+  }
   return convertJSXElements(fileSource, api);
 };
 
@@ -38,12 +42,12 @@ const convertJSXElements = (fileSource: string, api: types.API) => {
   return j(fileSource)
     .find(j.JSXElement)
     .forEach((path) => {
-      // rename `Button` props
       const buttonElement = matchElement(path.value, ["Button"]);
       if (!buttonElement) {
         return;
       }
 
+      // rename `Button` props
       renameAttribute(buttonElement, "tag", "as");
       renameAttribute(buttonElement, "innerRef", "ref");
 

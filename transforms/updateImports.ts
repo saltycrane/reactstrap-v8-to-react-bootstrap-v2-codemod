@@ -88,7 +88,7 @@ const updateImports = ({
     });
 
   if (!hasRsImportsToRemove && !skipHasRsImportsCheck) {
-    return fileSource;
+    return [fileSource, hasRsImportsToRemove] as const;
   }
 
   /**
@@ -166,7 +166,10 @@ const updateImports = ({
     );
   };
 
-  return addOrUpdateRbImports(updateRsImports(fileSource));
+  return [
+    addOrUpdateRbImports(updateRsImports(fileSource)),
+    hasRsImportsToRemove,
+  ] as const;
 };
 
 export default updateImports;

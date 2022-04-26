@@ -2,7 +2,7 @@ import * as types from "jscodeshift";
 
 import updateImports from "./updateImports";
 import {
-  TChild,
+  // TChild,
   addAttrIdentifier,
   addAttrLiteral,
   getMatchingChildren,
@@ -14,7 +14,7 @@ import {
   renameAttribute,
   renameElement,
   setElementName,
-  addAttribute,
+  // addAttribute,
 } from "./util";
 
 // Rs/rs = reactstrap
@@ -31,7 +31,8 @@ export default function transformer(file: types.FileInfo, api: types.API) {
  *
  */
 export const convertForms = (fileSource: string, api: types.API) => {
-  fileSource = updateImports({
+  let hasImports: boolean;
+  [fileSource, hasImports] = updateImports({
     api,
     fileSource,
     rbComponentToAdd: "Form",
@@ -46,11 +47,16 @@ export const convertForms = (fileSource: string, api: types.API) => {
     ],
   });
 
+  if (!hasImports) {
+    return fileSource;
+  }
+
   let componentsToImport: string[] = [];
   [fileSource, componentsToImport] = convertFormJSXElements(fileSource, api);
 
+  // import additional components needed after doing the JSX transform
   for (const componentName of componentsToImport) {
-    fileSource = updateImports({
+    [fileSource] = updateImports({
       api,
       fileSource,
       rbComponentToAdd: componentName,

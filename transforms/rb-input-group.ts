@@ -17,22 +17,17 @@ export default function transformer(file: types.FileInfo, api: types.API) {
  *
  */
 export const convertInputGroup = (fileSource: string, api: types.API) => {
-  return convertJSXElements(
-    removeInputGroupAddon(
-      updateImports({
-        api,
-        fileSource,
-        rbComponentToAdd: "InputGroup",
-        rsComponentsToRemove: [
-          "InputGroup",
-          "InputGroupAddon",
-          "InputGroupText",
-        ],
-      }),
-      api
-    ),
-    api
-  );
+  let hasImports: boolean;
+  [fileSource, hasImports] = updateImports({
+    api,
+    fileSource,
+    rbComponentToAdd: "InputGroup",
+    rsComponentsToRemove: ["InputGroup", "InputGroupAddon", "InputGroupText"],
+  });
+  if (!hasImports) {
+    return fileSource;
+  }
+  return convertJSXElements(removeInputGroupAddon(fileSource, api), api);
 };
 
 /**
@@ -59,7 +54,7 @@ const removeInputGroupAddon = (fileSource: string, api: types.API) => {
           });
           if (unexpectedAttrs.length > 0) {
             throw Error(
-              "Unsafe to remove <InputGroupAddon> because it has extra prop(s). Fix manually."
+              "Unsafe to remove <InputGroupAddon> because it has extra prop(s). Fix manually.",
             );
           }
           return inputGroupAddonChild.children ?? [];
