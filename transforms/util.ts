@@ -5,13 +5,19 @@ import * as types from "jscodeshift";
  ******************************************************************/
 type TAttrValue = string | number | boolean | RegExp | null;
 
-export type TChild =
+export type TReactNode =
+  | types.BigIntLiteral
+  | types.BooleanLiteral
   | types.JSXElement
   | types.JSXExpressionContainer
   | types.JSXFragment
   | types.JSXSpreadChild
   | types.JSXText
-  | types.Literal;
+  | types.Literal
+  | types.NullLiteral
+  | types.NumericLiteral
+  | types.RegExpLiteral
+  | types.StringLiteral;
 
 /**
  *
@@ -19,7 +25,7 @@ export type TChild =
 export const addAttribute = (
   element: types.JSXElement,
   name: string,
-  value: Exclude<TChild, types.JSXSpreadChild>,
+  value: Exclude<TReactNode, types.JSXSpreadChild>,
   api: types.API,
 ) => {
   const j = api.jscodeshift;
@@ -254,20 +260,21 @@ export const getMatchingChildren = (
 /**
  *
  */
-type TReactNode =
-  | types.JSXElement
-  | types.JSXExpressionContainer
-  | types.JSXFragment
-  | types.JSXSpreadChild
-  | types.JSXText
-  | types.BigIntLiteral
-  | types.BooleanLiteral
-  | types.Literal
-  | types.NullLiteral
-  | types.NumericLiteral
-  | types.RegExpLiteral
-  | types.StringLiteral;
+export const isWhiteSpaceChild = (child: TReactNode) => {
+  if (child.type === "JSXText") {
+    return /^\s*$/.test(child.value);
+  }
+  if (child.type === "JSXExpressionContainer") {
+    if (child.expression.type === "StringLiteral") {
+      return /^\s*$/.test(child.expression.value);
+    }
+  }
+  return false;
+};
 
+/**
+ *
+ */
 export const matchElement = (node: TReactNode, namesToMatch: string[]) => {
   if (node.type !== "JSXElement") {
     return false;

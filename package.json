@@ -10,7 +10,8 @@
     "trailingComma": "all"
   },
   "dependencies": {
-    "jscodeshift": "^0.13.1"
+    "jscodeshift": "^0.13.1",
+    "jscodeshift-helper": "^1.1.0"
   },
   "devDependencies": {
     "@types/jscodeshift": "^0.11.4",

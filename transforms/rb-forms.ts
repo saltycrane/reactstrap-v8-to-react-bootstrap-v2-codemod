@@ -2,11 +2,11 @@ import * as types from "jscodeshift";
 
 import updateImports from "./updateImports";
 import {
-  // TChild,
   addAttrIdentifier,
   addAttrLiteral,
   getMatchingChildren,
   hasAttribute,
+  isWhiteSpaceChild,
   matchAttrByName,
   matchAttrByVal,
   matchElement,
@@ -14,18 +14,8 @@ import {
   renameAttribute,
   renameElement,
   setElementName,
-  // addAttribute,
+  addAttribute,
 } from "./util";
-
-// Rs/rs = reactstrap
-// Rb/rb = react-bootstrap
-
-/**
- *
- */
-export default function transformer(file: types.FileInfo, api: types.API) {
-  return convertForms(file.source, api);
-}
 
 /**
  *
@@ -52,7 +42,12 @@ export const convertForms = (fileSource: string, api: types.API) => {
   }
 
   let componentsToImport: string[] = [];
-  [fileSource, componentsToImport] = convertFormJSXElements(fileSource, api);
+  [fileSource, componentsToImport] = convertFormGroupJSXElements(
+    fileSource,
+    api,
+  );
+  fileSource = convertLabelJSXElements(fileSource, api);
+  fileSource = convertFormJSXElements(fileSource, api);
 
   // import additional components needed after doing the JSX transform
   for (const componentName of componentsToImport) {
@@ -69,33 +64,65 @@ export const convertForms = (fileSource: string, api: types.API) => {
 };
 
 /**
- * convertFormJSXElements
+ *
  */
-const convertFormJSXElements = (fileSource: string, api: types.API) => {
+const convertFormGroupJSXElements = (fileSource: string, api: types.API) => {
   const j = api.jscodeshift;
   const componentsToImport: string[] = [];
 
   const modifiedFileSource = j(fileSource)
     .find(j.JSXElement)
     .forEach((path) => {
-      // convert `Label`
-      const labelElement = matchElement(path.value, ["Label"]);
-      convertLabel(labelElement);
-
-      // convert `FormGroup`
       const formGroupElement = matchElement(path.value, ["FormGroup"]);
-      const hasRowProp = convertFormGroup(formGroupElement, api);
+      if (!formGroupElement) {
+        return;
+      }
+
+      // remove "check" prop
+      removeAttribute(formGroupElement, "check");
+
+      // handle "inline" prop
+      //  - remove "inline" prop from `FormGroup`
+      //  - add "inline" prop to child `Input` component
+      const hasInlineProp = hasAttribute(formGroupElement, "inline");
+      if (hasInlineProp) {
+        removeAttribute(formGroupElement, "inline");
+
+        // `Input` may not be a direct child of `FormGroup` so use `.find()`
+        j(path)
+          .find(j.JSXElement)
+          .forEach((path2) => {
+            const inputElement = matchElement(path2.value, [
+              "Input",
+              "CustomInput",
+            ]);
+            if (!inputElement) {
+              return;
+            }
+            addAttrLiteral(inputElement, "inline", undefined, api);
+          });
+      }
+
+      // handle "row" prop
+      //  - remove "row" prop
+      //  - add `as={Row}` prop
+      //  - take note to import "Row" later
+      //  - add "column" prop to child `Label` components
+      const hasRowProp = hasAttribute(formGroupElement, "row");
+      if (hasRowProp) {
+        removeAttribute(formGroupElement, "row");
+        addAttrIdentifier(formGroupElement, "as", "Row", api);
+        const labelElements = getMatchingChildren(formGroupElement, ["Label"]);
+        for (const labelElement of labelElements) {
+          addAttrLiteral(labelElement, "column", undefined, api);
+        }
+      }
+
+      setElementName(formGroupElement, "Form.Group");
+
       if (hasRowProp) {
         componentsToImport.push("Row");
       }
-
-      // convert `Input` and `CustomInput`
-      const inputElement = matchElement(path.value, ["Input", "CustomInput"]);
-      convertInput(inputElement);
-
-      // rename other elements
-      renameElement(path.value, "FormFeedback", "Form.Control.Feedback");
-      renameElement(path.value, "FormText", "Form.Text");
     })
     .toSource();
 
@@ -105,75 +132,95 @@ const convertFormJSXElements = (fileSource: string, api: types.API) => {
 /**
  *
  */
-const convertLabel = (
-  labelElement: types.JSXElement | false,
-  // api: types.API,
-) => {
-  if (!labelElement) {
-    return;
-  }
+const convertLabelJSXElements = (fileSource: string, api: types.API) => {
+  const j = api.jscodeshift;
 
-  // remove `check` prop from some components
-  removeAttribute(labelElement, "check");
-
-  // // convert <Label><Input />My Label</Label>
-  // // -> <Input label="My Label" />
-  // // DOES NOT WORK - <Label> often has more than 2 children in valid cases.  Maybe
-  // // need to filter out whitespace. Seems pretty difficult. Also if I ever come
-  // // back to it, the logic is still wrong even if there were always 2 children.
-  // const children = labelElement.children ?? [];
-  // if (children.length === 2) {
-  //   const first = matchElement(children[0], ["Input", "CustomInput"]);
-  //   const second = matchElement(children[0], ["Input", "CustomInput"]);
-  //   if (first && second) {
-  //     throw Error("Label has 2 Input children");
-  //   }
-  //   if (!first && !second) {
-  //     throw Error("Label has 0 Input children");
-  //   }
-  //   const label = (first ? second : first) as TChild;
-  //   const input = (first ? first : second) as types.JSXElement;
-  //   if (label.type === "JSXSpreadChild") {
-  //     throw Error("label type of JSXSpreadChild is not handled");
-  //   }
-  //   addAttribute(input, "label", label, api);
-  // }
-
-  setElementName(labelElement, "Form.Label");
+  return j(fileSource)
+    .find(j.JSXElement)
+    .replaceWith((path) => {
+      const labelElement = matchElement(path.value, ["Label"]);
+      if (!labelElement) {
+        return path.value;
+      }
+      const newElement = convertLabelWithInputChild(labelElement, api);
+      if (newElement) {
+        return newElement;
+      }
+      removeAttribute(labelElement, "check");
+      setElementName(labelElement, "Form.Label");
+      return labelElement;
+    })
+    .toSource();
 };
 
 /**
  *
  */
-const convertFormGroup = (
-  formGroupElement: types.JSXElement | false,
+const convertLabelWithInputChild = (
+  labelElement: types.JSXElement,
   api: types.API,
 ) => {
-  if (!formGroupElement) {
-    return;
+  const j = api.jscodeshift;
+
+  // convert <Label><Input />My Label</Label>  -> <Input label="My Label" />
+  const children = labelElement.children ?? [];
+  const inputChildren = children.filter((child) => {
+    return matchElement(child, ["Input", "CustomInput"]);
+  }) as types.JSXElement[];
+  if (inputChildren.length > 1) {
+    throw Error("Label has more than 1 Input children");
   }
-
-  // remove "check" prop
-  removeAttribute(formGroupElement, "check");
-
-  // handle "row" prop
-  //  - remove "row" prop
-  //  - add `as={Row}` prop
-  //  - take note to import "Row" later
-  //  - add "column" prop to child `Label` components
-  const hasRowProp = hasAttribute(formGroupElement, "row");
-  if (hasRowProp) {
-    removeAttribute(formGroupElement, "row");
-    addAttrIdentifier(formGroupElement, "as", "Row", api);
-    const labelElements = getMatchingChildren(formGroupElement, ["Label"]);
-    for (const labelElement of labelElements) {
-      addAttrLiteral(labelElement, "column", undefined, api);
-    }
+  if (inputChildren.length === 0) {
+    return false;
   }
+  const inputElement = inputChildren[0];
+  const otherChildren = children.filter((child) => {
+    return (
+      !matchElement(child, ["Input", "CustomInput"]) &&
+      !isWhiteSpaceChild(child)
+    );
+  });
+  if (otherChildren.length > 1) {
+    throw Error("Other non-whitespace children > 1");
+  }
+  const label = otherChildren.length === 0 ? null : otherChildren[0];
+  if (label) {
+    addAttribute(
+      inputElement,
+      "label",
+      j.jsxExpressionContainer(
+        j.jsxFragment(
+          { type: "JSXOpeningFragment" },
+          { type: "JSXClosingFragment" },
+          [label],
+        ),
+      ),
+      api,
+    );
+  }
+  convertInput(inputElement);
 
-  setElementName(formGroupElement, "Form.Group");
+  return inputElement;
+};
 
-  return hasRowProp;
+/**
+ * convertFormJSXElements
+ */
+const convertFormJSXElements = (fileSource: string, api: types.API) => {
+  const j = api.jscodeshift;
+
+  return j(fileSource)
+    .find(j.JSXElement)
+    .forEach((path) => {
+      // convert `Input` and `CustomInput`
+      const inputElement = matchElement(path.value, ["Input", "CustomInput"]);
+      convertInput(inputElement);
+
+      // rename other elements
+      renameElement(path.value, "FormFeedback", "Form.Control.Feedback");
+      renameElement(path.value, "FormText", "Form.Text");
+    })
+    .toSource();
 };
 
 /**

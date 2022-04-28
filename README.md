@@ -4,7 +4,7 @@
   - for converting from Bootstrap v4 CSS utility classes to v5
   - for converting from `reactstrap` v8 (Forms mostly) to `react-bootstrap` v2
 - written in TypeScript for use on TypeScript source code
-- UNFINISHED because the progress so far took longer than expected and converting `<Label><Input />My Label</Label>` -> `<Form.Check label="My Label />` was another level of difficulty
+- incomplete
 
 ## Convert from `reactstrap@8` to `react-bootstrap@2`
 
