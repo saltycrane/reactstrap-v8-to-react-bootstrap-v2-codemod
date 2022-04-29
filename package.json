@@ -3,8 +3,7 @@
     "jscodeshift": "jscodeshift --parser=tsx --extensions=tsx",
     "all": "npm run jscodeshift -- -t ./transforms/all.ts",
     "bs-util-classes": "npm run jscodeshift -- -t ./transforms/bs-util-classes.ts",
-    "rb-forms": "npm run jscodeshift -- -t ./transforms/rb-forms.ts",
-    "rb-input-group": "npm run jscodeshift -- -t ./transforms/rb-input-group.ts"
+    "my-company": "npm run jscodeshift -- -t ./transforms/my-company-custom-stuff.ts"
   },
   "prettier": {
     "trailingComma": "all"

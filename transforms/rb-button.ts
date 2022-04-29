@@ -2,12 +2,13 @@ import * as types from "jscodeshift";
 
 import updateImports from "./updateImports";
 import {
+  addAttrLiteral,
   hasAttribute,
   matchElement,
   removeAttribute,
   renameAttribute,
   renameOrAddAttribute,
-  updateAttrStringValue,
+  updateAttrString,
 } from "./util";
 
 /**
@@ -41,10 +42,10 @@ const convertJSXElements = (fileSource: string, api: types.API) => {
 
   return j(fileSource)
     .find(j.JSXElement)
-    .forEach((path) => {
-      const buttonElement = matchElement(path.value, ["Button"]);
+    .replaceWith((path) => {
+      let buttonElement = matchElement(path.value, ["Button"]);
       if (!buttonElement) {
-        return;
+        return path.value;
       }
 
       // rename `Button` props
@@ -59,11 +60,36 @@ const convertJSXElements = (fileSource: string, api: types.API) => {
       // Remove `outline` prop and change `variant` value to add "outline-" prefix
       if (hasAttribute(buttonElement, "outline")) {
         removeAttribute(buttonElement, "outline");
-        updateAttrStringValue(buttonElement, "variant", api, (currentValue) => {
-          console.log("[rb-button.ts] currentValue", currentValue);
-          return `outline-${currentValue}`;
-        });
+        if (hasAttribute(buttonElement, "variant")) {
+          updateAttrString(buttonElement, "variant", api, (currentValue) => {
+            return `outline-${currentValue}`;
+          });
+        } else {
+          addAttrLiteral(buttonElement, "variant", "outline-secondary", api);
+        }
       }
+
+      // remove `block` prop and wrap button with `<div className="d-grid w-100">`
+      if (hasAttribute(buttonElement, "block")) {
+        removeAttribute(buttonElement, "block");
+        // buttonElement = j.jsxElement(
+        //   j.jsxOpeningElement(j.jsxIdentifier("div"), [
+        //     j.jsxAttribute(
+        //       j.jsxIdentifier("className"),
+        //       j.literal("d-grid w-100"),
+        //     ),
+        //   ]),
+        //   j.jsxClosingElement(j.jsxIdentifier("div")),
+        //   [buttonElement],
+        // );
+        buttonElement = j(`
+          <div className="d-grid w-100">
+            ${j(buttonElement).toSource()}
+          </div>
+        `).nodes()[0];
+      }
+
+      return buttonElement;
     })
     .toSource();
 };

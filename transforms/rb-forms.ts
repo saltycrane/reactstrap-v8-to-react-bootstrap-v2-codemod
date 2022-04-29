@@ -4,17 +4,18 @@ import updateImports from "./updateImports";
 import {
   addAttrIdentifier,
   addAttrLiteral,
+  addAttribute,
+  addOrUpdateClassName,
+  findAttrByName,
   getMatchingChildren,
   hasAttribute,
   isWhiteSpaceChild,
-  matchAttrByName,
   matchAttrByVal,
   matchElement,
   removeAttribute,
   renameAttribute,
   renameElement,
   setElementName,
-  addAttribute,
 } from "./util";
 
 /**
@@ -47,7 +48,7 @@ export const convertForms = (fileSource: string, api: types.API) => {
     api,
   );
   fileSource = convertLabelJSXElements(fileSource, api);
-  fileSource = convertFormJSXElements(fileSource, api);
+  fileSource = convertOtherJSXElements(fileSource, api);
 
   // import additional components needed after doing the JSX transform
   for (const componentName of componentsToImport) {
@@ -80,6 +81,17 @@ const convertFormGroupJSXElements = (fileSource: string, api: types.API) => {
 
       // remove "check" prop
       removeAttribute(formGroupElement, "check");
+
+      // add or update "className" to include "mb-3"
+      addOrUpdateClassName(formGroupElement, api, (currentValue) => {
+        if (!currentValue) {
+          return "mb-3";
+        }
+        if (/mb?-[0-5]/.test(currentValue)) {
+          return currentValue;
+        }
+        return `mb-3 ${currentValue}`;
+      });
 
       // handle "inline" prop
       //  - remove "inline" prop from `FormGroup`
@@ -154,6 +166,16 @@ const convertLabelJSXElements = (fileSource: string, api: types.API) => {
 };
 
 /**
+ * Convert checkboxes inside labels like:
+ *
+ *     <Label>
+ *       <Input type="checkbox" />
+ *       My Label
+ *     </Label>
+ *
+ *   to:
+ *
+ *     <Input label={<>My Label</>} />
  *
  */
 const convertLabelWithInputChild = (
@@ -162,11 +184,13 @@ const convertLabelWithInputChild = (
 ) => {
   const j = api.jscodeshift;
 
-  // convert <Label><Input />My Label</Label>  -> <Input label="My Label" />
   const children = labelElement.children ?? [];
+
+  // find the input
   const inputChildren = children.filter((child) => {
     return matchElement(child, ["Input", "CustomInput"]);
   }) as types.JSXElement[];
+
   if (inputChildren.length > 1) {
     throw Error("Label has more than 1 Input children");
   }
@@ -174,6 +198,14 @@ const convertLabelWithInputChild = (
     return false;
   }
   const inputElement = inputChildren[0];
+
+  // transform is only applied for checkboxes, radios, and switches
+  const typeAttr = findAttrByName(inputElement, ["type"]);
+  if (!matchAttrByVal(typeAttr, ["checkbox", "radio", "switch"])) {
+    return;
+  }
+
+  // find the label
   const otherChildren = children.filter((child) => {
     return (
       !matchElement(child, ["Input", "CustomInput"]) &&
@@ -184,6 +216,9 @@ const convertLabelWithInputChild = (
     throw Error("Other non-whitespace children > 1");
   }
   const label = otherChildren.length === 0 ? null : otherChildren[0];
+
+  // add the label as a new prop to the input, wrapped by a React.Fragment to
+  // make things easier
   if (label) {
     addAttribute(
       inputElement,
@@ -198,6 +233,8 @@ const convertLabelWithInputChild = (
       api,
     );
   }
+
+  // do all the normal conversions to the input
   convertInput(inputElement);
 
   return inputElement;
@@ -206,12 +243,16 @@ const convertLabelWithInputChild = (
 /**
  * convertFormJSXElements
  */
-const convertFormJSXElements = (fileSource: string, api: types.API) => {
+const convertOtherJSXElements = (fileSource: string, api: types.API) => {
   const j = api.jscodeshift;
 
   return j(fileSource)
     .find(j.JSXElement)
     .forEach((path) => {
+      // convert `Form`
+      const formElement = matchElement(path.value, ["Form"]);
+      removeAttribute(formElement, "inline");
+
       // convert `Input` and `CustomInput`
       const inputElement = matchElement(path.value, ["Input", "CustomInput"]);
       convertInput(inputElement);
@@ -233,14 +274,16 @@ const convertInput = (inputElement: types.JSXElement | false) => {
   renameAttribute(inputElement, "innerRef", "ref");
   renameAttribute(inputElement, "invalid", "isInvalid");
   renameAttribute(inputElement, "valid", "isValid");
-  const typeAttr = inputElement.openingElement.attributes?.find((attr) =>
-    matchAttrByName(attr, ["type"]),
-  );
+  const typeAttr = findAttrByName(inputElement, ["type"]);
   if (matchAttrByVal(typeAttr, ["checkbox", "radio", "switch"])) {
     setElementName(inputElement, "Form.Check");
   } else if (matchAttrByVal(typeAttr, ["select"])) {
     removeAttribute(inputElement, "type");
     setElementName(inputElement, "Form.Select");
+  } else if (matchAttrByVal(typeAttr, ["textarea"])) {
+    renameAttribute(inputElement, "type", "as");
+    renameAttribute(inputElement, "bsSize", "size");
+    setElementName(inputElement, "Form.Control");
   } else {
     renameAttribute(inputElement, "bsSize", "size");
     setElementName(inputElement, "Form.Control");

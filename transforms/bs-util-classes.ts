@@ -3,10 +3,13 @@
 //
 import * as types from "jscodeshift";
 
+import { globalForLogging } from "./logging";
+
 /**
  *
  */
 export default function transformer(file: types.FileInfo, api: types.API) {
+  globalForLogging.filepath = file.path;
   return convertCssUtilities(file.source, api);
 }
 

@@ -1,5 +1,7 @@
 import * as types from "jscodeshift";
 
+import { consoleError, consoleWarn } from "./logging";
+
 /******************************************************************
  * Attribute utilities
  ******************************************************************/
@@ -25,14 +27,28 @@ export type TReactNode =
 export const addAttribute = (
   element: types.JSXElement,
   name: string,
-  value: Exclude<TReactNode, types.JSXSpreadChild>,
+  value: Exclude<TReactNode, types.JSXSpreadChild> | undefined,
   api: types.API,
 ) => {
   const j = api.jscodeshift;
 
-  const newAttr = j.jsxAttribute(j.jsxIdentifier(name), value);
+  const hasSpreadAttrs = (element.openingElement.attributes ?? []).some(
+    (attribute) => {
+      return attribute.type === "JSXSpreadAttribute";
+    },
+  );
+  if (hasSpreadAttrs) {
+    consoleWarn(
+      `Adding "${name}" as the first prop, but spread props are present, so this could be wrong.`,
+    );
+  }
+  const newAttr =
+    value === undefined
+      ? j.jsxAttribute(j.jsxIdentifier(name))
+      : j.jsxAttribute(j.jsxIdentifier(name), value);
+
   if (element.openingElement.attributes) {
-    element.openingElement.attributes.push(newAttr);
+    element.openingElement.attributes.unshift(newAttr);
   } else {
     element.openingElement.attributes = [newAttr];
   }
@@ -49,16 +65,8 @@ export const addAttrLiteral = (
 ) => {
   const j = api.jscodeshift;
 
-  const newAttr =
-    value === undefined
-      ? j.jsxAttribute(j.jsxIdentifier(name))
-      : j.jsxAttribute(j.jsxIdentifier(name), j.literal(value));
-
-  if (element.openingElement.attributes) {
-    element.openingElement.attributes.push(newAttr);
-  } else {
-    element.openingElement.attributes = [newAttr];
-  }
+  const literalValue = value === undefined ? undefined : j.literal(value);
+  addAttribute(element, name, literalValue, api);
 };
 
 /**
@@ -83,6 +91,72 @@ export const addAttrIdentifier = (
 /**
  *
  */
+export const addOrUpdateAttrString = (
+  element: types.JSXElement,
+  name: string,
+  api: types.API,
+  updater: (currentValue?: string) => string,
+) => {
+  const attr = findAttrByName(element, [name]);
+  if (attr) {
+    updateAttrString(element, name, api, updater);
+  } else {
+    addAttrLiteral(element, name, updater(), api);
+  }
+};
+
+/**
+ *
+ */
+export const addOrUpdateClassName = (
+  element: types.JSXElement,
+  api: types.API,
+  updater: (currentValue?: string) => string,
+) => {
+  const j = api.jscodeshift;
+  const attr = findAttrByName(element, ["className"]);
+
+  if (!attr) {
+    const value = updater();
+    addAttrLiteral(element, "className", value, api);
+    return;
+  }
+  if (attr.type === "JSXSpreadAttribute") {
+    consoleWarn("JSXSpreadAttribute is not handled");
+    return;
+  }
+  if (attr.value?.type === "JSXExpressionContainer") {
+    const value = updater();
+    const expression = attr.value.expression;
+    attr.value.expression = j(
+      ["`", value, " ", "${", j(expression).toSource(), "}", "`"].join(""),
+    ).nodes()[0];
+    return;
+  }
+  if (attr.value?.type !== "StringLiteral" && attr.value?.type !== "Literal") {
+    return;
+  }
+  if (typeof attr.value.value !== "string") {
+    return;
+  }
+  attr.value.value = updater(attr.value.value);
+};
+
+/**
+ *
+ */
+export const findAttrByName = (
+  element: types.JSXElement,
+  attrNamesToMatch: string[],
+) => {
+  return element.openingElement.attributes?.find((attr) =>
+    matchAttrByName(attr, attrNamesToMatch),
+  );
+};
+
+/**
+ *
+ */
 export const hasAttribute = (
   element: types.JSXElement,
   attrNameToMatch: string,
@@ -100,11 +174,11 @@ export const matchAttrByName = (
   namesToMatch: string[],
 ) => {
   if (attr.type === "JSXSpreadAttribute") {
-    console.warn("JSXSpreadAttribute is not handled");
+    consoleWarn("JSXSpreadAttribute is not handled");
     return false;
   }
   if (attr.name.type === "JSXNamespacedName") {
-    console.warn("JSXNamespacedName is not handled");
+    consoleWarn("JSXNamespacedName is not handled");
     return false;
   }
   if (!namesToMatch.includes(attr.name.name)) {
@@ -124,7 +198,7 @@ export const matchAttrByVal = (
     return false;
   }
   if (attr.type === "JSXSpreadAttribute") {
-    console.warn("JSXSpreadAttribute is not handled");
+    consoleWarn("JSXSpreadAttribute is not handled");
     return false;
   }
   const valType = attr.value?.type;
@@ -210,32 +284,30 @@ export const renameOrAddAttribute = (
 /**
  *
  */
-export const updateAttrStringValue = (
+export const updateAttrString = (
   element: types.JSXElement,
   name: string,
   api: types.API,
   updater: (currentValue: string) => string,
 ) => {
   const j = api.jscodeshift;
-  const attr = element.openingElement.attributes?.find((attr) =>
-    matchAttrByName(attr, [name]),
-  );
+  const attr = findAttrByName(element, [name]);
   if (!attr) {
     return;
   }
   if (attr.type === "JSXSpreadAttribute") {
-    console.warn("JSXSpreadAttribute is not handled");
+    consoleWarn("JSXSpreadAttribute is not handled");
     return;
   }
   if (attr.value?.type !== "StringLiteral" && attr.value?.type !== "Literal") {
-    console.warn(
-      `Only StringLiteral types can be updated. Found type: ${attr.value?.type}`,
+    consoleError(
+      `Cannot update "${name}" prop. Only StringLiteral types can be updated. Found type: ${attr.value?.type}`,
     );
     return;
   }
   if (typeof attr.value.value !== "string") {
-    console.warn(
-      `Only string types can be updated. Found: ${attr.value.value}`,
+    consoleError(
+      `Cannot update "${name}" prop. Only string types can be updated. Found: ${attr.value.value}`,
     );
     return;
   }
