@@ -27,13 +27,27 @@ const convertJSXElements = (fileSource: string, api: types.API) => {
   const j = api.jscodeshift;
   return j(fileSource)
     .find(j.JSXElement)
-    .forEach((path) => {
+    .replaceWith((path) => {
       const collapseElement = matchElement(path.value, ["Collapse"]);
       if (!collapseElement) {
-        return;
+        return path.value;
       }
       renameAttribute(collapseElement, "isOpen", "in");
       renameAttribute(collapseElement, "tag", "as");
+
+      // if there is more than 1 child, wrap them with a `<div>` because
+      // `Collapse` cannot have more than 1 child
+      if (collapseElement.children && collapseElement.children.length > 1) {
+        collapseElement.children = [
+          j.jsxElement(
+            j.jsxOpeningElement(j.jsxIdentifier("div")),
+            j.jsxClosingElement(j.jsxIdentifier("div")),
+            collapseElement.children,
+          ),
+        ];
+      }
+
+      return collapseElement;
     })
     .toSource();
 };
